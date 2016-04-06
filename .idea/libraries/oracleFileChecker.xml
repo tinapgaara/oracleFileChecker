@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="oracleFileChecker">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/out/artifacts/oracleFileChecker_jar/oracleFileChecker.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

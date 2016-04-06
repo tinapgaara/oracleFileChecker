@@ -1,0 +1,6 @@
+File/Path checked: /Users/yingtan/Documents/Work/IntelliJ.pro/oracleFileChecker
+Check completed at 4/5/2016 8:13:53.887.
+
+*************************** Error : Copyright wrong format ***************************
+/Users/yingtan/Documents/Work/IntelliJ.pro/oracleFileChecker/src/oracle/apmaas/util/fileChecker/CopyrightChecker.java
+
