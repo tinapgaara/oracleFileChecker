@@ -1,7 +1,19 @@
+/*
+ *  +===========================================================================+
+ *  |      Copyright (c) 2016 Oracle Corporation, Redwood Shores, CA, USA       |
+ *  |                         All rights reserved.                              |
+ *  +===========================================================================+
+ */
 
 package oracle.apmaas.util.fileChecker;
 
+import java.util.Calendar;
+import java.util.concurrent.ExecutionException;
+
 public class Main {
+
+	public final static String FILE_EXT_NAME_Java = ".java";
+	public final static String FILE_EXT_NAME_PROPERTIES = ".properties";
 
 	private final static String COMMAND_help = "-h";
 	private final static String COMMAND_help_2 = "-help";
@@ -9,6 +21,8 @@ public class Main {
 	private final static String COMMAND_info = "-info";
 	private final static String COMMAND_exception = "-ex";
 	private final static String COMMAND_silent = "-s";
+
+	private final static String CURRENT_DIR = ".";
 
 	public static void main(String[] args) {
 		String path = null;
@@ -46,16 +60,24 @@ public class Main {
 				else if (COMMAND_exception.equalsIgnoreCase(args[1]))
 					logLevel = Logger.LOG_LEVEL_Exception;
 			}
+			if (path == null)
+				path = CURRENT_DIR;
 		}
 
 		Logger.logLevel = logLevel;
 
 		CopyrightChecker checker = new CopyrightChecker();
-		boolean recursive = true;
-		checker.checkPath(path, recursive);
+		checker.checkDir(path);
+		checker.writeResultToFile(path);
 
 		CopyrightEditor editor = new CopyrightEditor();
-		editor.edit(checker.getIncorrectFilePaths());
+		editor.editMissingFiles(checker.getMissingFilePaths());
+	}
+
+	public static int getCurYear() {
+		Calendar calendar = Calendar.getInstance();
+		calendar.setTimeInMillis(System.currentTimeMillis());
+		return calendar.get(Calendar.YEAR);
 	}
 
 }

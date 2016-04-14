@@ -1,131 +1,168 @@
+/*
+ *  +===========================================================================+
+ *  |      Copyright (c) 2016 Oracle Corporation, Redwood Shores, CA, USA       |
+ *  |                         All rights reserved.                              |
+ *  +===========================================================================+
+ */
 package oracle.apmaas.util.fileChecker;
 
 import java.io.*;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Created by yiyitan on 4/4/2016.
  */
 public class CopyrightEditor {
 
-    private static final String COPYRIGHT_STANDARD_BLOCK =
-            "/*\n" +
-                    " *  +===========================================================================+\n" +
-                    " *  |      Copyright (c) 2016 Oracle Corporation, Redwood Shores, CA, USA       |\n" +
-                    " *  |                         All rights reserved.                              |\n" +
-                    " *  +===========================================================================+\n" +
-                    " *  |  HISTORY                                                                  |\n" +
-                    " *  +===========================================================================+\n" +
-                    " */\n";
+    private static String COPYRIGHT_STANDARD_BLOCK_Java = null;
+    private static String COPYRIGHT_STANDARD_BLOCK_Properties = null;
 
-    private final static String TEMP_FILE_NAME = "$$$TMP.tmp";
-    private final static int FILE_OP_OK = 0;
-    private final static int FILE_OP_Failed = -1001;
+    private static final int FILE_READ_BUFFER_SIZE = 1024 * 1024;	// 1M
+    private static final int FILE_WRITE_BUFFER_SIZE = 1024 * 1024;	// 1M
+    private static final int MAX_FILE_SIZE = 32 * 1024 * 1024; // 32M
 
+    private static final int FILE_IO_BLOCK_SIZE = 4 * 1024 * 1024; // 4M
 
     public CopyrightEditor() {
-        // nothing to do here
+        int curYear = Main.getCurYear();
+
+        COPYRIGHT_STANDARD_BLOCK_Java =
+                "/*\n" +
+                        " *  +===========================================================================+\n" +
+                        " *  |      Copyright (c) "+ curYear +" Oracle Corporation, Redwood Shores, CA, USA       |\n" +
+                        " *  |                         All rights reserved.                              |\n" +
+                        " *  +===========================================================================+\n" +
+                        " */\n";
+
+        COPYRIGHT_STANDARD_BLOCK_Properties =
+                "#  +===========================================================================+\n" +
+                        "#  |      Copyright (c) " + curYear + " Oracle Corporation, Redwood Shores, CA, USA       |\n" +
+                        "#  |                         All rights reserved.                              |\n" +
+                        "#  +===========================================================================+\n";
     }
 
-    public void edit(Map<Integer, List<String>> incorrectFilePaths) {
-        if ( (incorrectFilePaths == null) || incorrectFilePaths.isEmpty() ) {
+    public void editMissingFiles(List<String> missingFilePaths) {
+        if ( (missingFilePaths == null) || (missingFilePaths.isEmpty()) ) {
             return;
         }
 
-        int fileOpCode = FILE_OP_OK;
-        for (Integer caseNum : incorrectFilePaths.keySet()) {
-            if (caseNum == CopyrightChecker.COPYRIGHT_Not_Present) {
-                // missing block, add copyright to it
-                List<String> filePaths = incorrectFilePaths.get(caseNum);
-                if (filePaths != null) {
-                    for (String path : filePaths) {
-                        fileOpCode = addCopyright2MissingFiles(path);
-                        if (fileOpCode != FILE_OP_OK) { // if operation on File is failed, need to break
-                            break;
-                        }
-                    }
-                }
+        try {
+            for (String path : missingFilePaths) {
+                if (path.endsWith(Main.FILE_EXT_NAME_Java))
+                    addCopyright2MissingFiles(COPYRIGHT_STANDARD_BLOCK_Java, path);
+                else if (path.endsWith(Main.FILE_EXT_NAME_PROPERTIES))
+                    addCopyright2MissingFiles(COPYRIGHT_STANDARD_BLOCK_Properties, path);
             }
-
-            if (fileOpCode != FILE_OP_OK) {
-                break;
-            }
+        }
+        catch (Exception e) {
+            Logger.writeException(e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    private int addCopyright2MissingFiles(String filePath) {
-        int resultCode = FILE_OP_OK; // if operation on File is succedded
+    private void addCopyright2MissingFiles(String copyrightBlock, String filePath)
+            throws Exception {
 
-        Logger.writeLog("Begin to insert copyright block to file: " + filePath);
-
-        BufferedReader bufferedReader = null;
-        PrintWriter out = null;
+        byte[] fileContent = null;
+        BufferedInputStream bis = null;
+        BufferedOutputStream bos = null;
         try {
-            File inFile = new File(filePath);
+            Logger.writeLog("Begin to insert copyright block to file: " + filePath);
 
-            String tempFilePath = generateTempFilePath(inFile.getCanonicalPath());
-            File outFile = new File(tempFilePath);
-            out = new PrintWriter(new FileOutputStream(outFile));
+            File file = new File(filePath);
 
-            out.write(COPYRIGHT_STANDARD_BLOCK);
+            long fileLength = file.length();
+            if (fileLength <= MAX_FILE_SIZE) {
+                if (fileLength > 0) {
+                    fileContent = new byte[(int) fileLength];
+                    bis = new BufferedInputStream(new FileInputStream(file), FILE_READ_BUFFER_SIZE);
+                    int cBytesRead = bis.read(fileContent);
+                    if (cBytesRead != fileLength) {
+                        throw new IOException("Failed reading file: " + filePath + ", " +
+                                fileLength + " bytes expected, but only " + cBytesRead + " bytes read.");
+                    }
 
-            bufferedReader = new BufferedReader(new FileReader(inFile));
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                out.println(line);
-            }
-
-            out.flush();
-            out.close();
-            out = null;
-            bufferedReader.close();
-            bufferedReader = null;
-
-            boolean success = inFile.delete();
-            if (success) {
-                success = outFile.renameTo(inFile);
-                if ( ! success ) {
-                    Logger.writeException("Failed to rename temp file: [" + tempFilePath + "] into [" + filePath + "]");
-                    resultCode = FILE_OP_Failed;
+                    bis.close();
+                    bis = null;
                 }
+
+                bos = new BufferedOutputStream(new FileOutputStream(file), FILE_WRITE_BUFFER_SIZE);
+                bos.write(copyrightBlock.getBytes());
+                if (fileContent != null) {
+                    bos.write(fileContent);
+                }
+                bos.flush();
+                bos.close();
+                bos = null;
             }
             else {
-                Logger.writeException("Failed to delete original file: [" + filePath + "]");
-                resultCode = FILE_OP_Failed;
+                /*
+    			insertHeadToFile_InPlace(copyrightBlock.getBytes(), file, FILE_IO_BLOCK_SIZE);
+    			//*/
+                throw new IOException("Too large file: " + filePath + "; file size is " +
+                        fileLength + "; The maximum allowable file size is " + MAX_FILE_SIZE + ".");
             }
+
+            Logger.writeLog("End inserting copyright block in file: " + filePath);
         }
-        catch (java.io.FileNotFoundException e) {
-            Logger.writeException(e.getMessage());
-            e.printStackTrace();
-        }
-        catch (java.io.IOException e) {
-            Logger.writeException(e.getMessage());
-            e.printStackTrace();
+        catch (Exception e) {
+            throw new Exception("Exception in edition : [filePath=" + filePath + "]", e);
         }
         finally {
-            if (out != null) {
-                out.close();
-            }
-
-            if (bufferedReader != null) {
-                try {
-                    bufferedReader.close();
-                }
-                catch (IOException e) {
-                    Logger.writeException(e.getMessage());
-                    e.printStackTrace();
-                }
-            }
+            fileContent = null; // release the memory occupied by fileContent
+            if (bis != null) bis.close();
+            if (bos != null) bos.close();
         }
-
-        Logger.writeLog("End inserting copyright block in file: " + filePath);
-
-        return resultCode;
     }
 
-    private String generateTempFilePath(String originalFilePath) {
-        int pos = originalFilePath.lastIndexOf(File.separatorChar);
-        return originalFilePath.substring(0, pos + 1) + TEMP_FILE_NAME;
+    private static void insertHeadToFile_InPlace(byte[] head, File file, int blockSize)
+            throws IOException {
+
+        RandomAccessFile raFile = null;
+        byte[] buffer = null;
+        try {
+            int cBytesOfHead = head.length;
+            long fileLength = file.length();
+            raFile = new RandomAccessFile(file, "rw");
+
+            buffer = new byte[blockSize];
+            // fileReadPointer read from the last line
+            long fileReadPointer = fileLength;
+            int cBytesToRead, cBytesRead;
+            while (true) {
+                // move one block each time
+                fileReadPointer -= blockSize;
+                if (fileReadPointer >= 0) {
+                    cBytesToRead = blockSize;
+                }
+                // the rest head part's size is smaller than blockSize
+                else {
+                    cBytesToRead = (int) (blockSize + fileReadPointer);
+                    fileReadPointer = 0;
+                }
+
+                //find the start point to read file, read to buffer
+                raFile.seek(fileReadPointer);
+                cBytesRead = raFile.read(buffer, 0, cBytesToRead);
+                if (cBytesRead < cBytesToRead) {
+                    throw new IOException("Unexpected EOF while reading file: " + file.getCanonicalPath());
+                }
+
+                // pointer move one copyRightbBlock
+                raFile.seek(fileReadPointer + cBytesOfHead);
+                // write buffer
+                raFile.write(buffer, 0, cBytesRead);
+
+                // finally write copyRightBlock to the head of file
+                if (fileReadPointer <= 0) {
+                    raFile.seek(0);
+                    raFile.write(head);
+                    break;
+                }
+            }
+        } finally {
+            buffer = null;
+            if (raFile != null) raFile.close();
+        }
     }
 }

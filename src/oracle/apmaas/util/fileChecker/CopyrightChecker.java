@@ -1,12 +1,14 @@
+/*
+ *  +===========================================================================+
+ *  |      Copyright (c) 2016 Oracle Corporation, Redwood Shores, CA, USA       |
+ *  |                         All rights reserved.                              |
+ *  +===========================================================================+
+ */
 package oracle.apmaas.util.fileChecker;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.StringTokenizer;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -15,23 +17,19 @@ import java.util.regex.Pattern;
  */
 public class CopyrightChecker {
 
-	private final static int COPYRIGHT_BLOCK_LINE_NUM = 2;
 	private final static String COPYRIGHT_FIRST_LINE_PATTERN =
 			"\\s*Copyright\\s*\\(c\\)\\s*([0-9]{4}|([0-9]{4})\\s*\\-\\s*([0-9]{4}))\\s*Oracle\\s*Corporation,\\s*Redwood\\s*Shores,\\s*CA,\\s*USA";
 	private final static String COPYRIGHT_SECOND_LINE_PATTERN =
 			"\\s*(a|A)ll\\s*(r|R)ights\\s*(r|R)eserved\\s*";
-	/*
-    private final static String COPYRIGHT_WRONG_FORMAT_PATTERN =
-            "((c|C)opy\\s*(r|R)ight)(.*?)(((o|O)racle)\\s*((c|C)orporation))(.*?)((r|R)edwood\\s*(s|S)hores)";
-    //*/
-	private final static int COPYRIGHT_START_LINE_KEYWORD_NUM = 5;
-	private final static int COPYRIGHT_START_LINE_KEYWORD_NUM_Threshold = 3;
+
+	// Used to judge the wrong format of the first line
+	// if not match, but has these at least $threshold$ of these keywords, we take this as wrong format line
+	private final static int COPYRIGHT_START_LINE_KEYWORD_NUM_Threshold = 2;
 	private final static String COPYRIGHT_START_LINE_KEYWORD_1 = "copyright";
 	private final static String COPYRIGHT_START_LINE_KEYWORD_2 = "oracle";
 	private final static String COPYRIGHT_START_LINE_KEYWORD_3 = "corporation";
 	private final static String COPYRIGHT_START_LINE_KEYWORD_4 = "redwood";
 	private final static String COPYRIGHT_START_LINE_KEYWORD_5 = "shores";
-
 
 	private final static String APM_WLDF_INTERNAL_FILE_NAME = "apm-wldf-INTERNAL-RELEASE.properties";
 	private final static String APM_WLDF_FUTURE_FILE_NAME = "apm-wldf-FUTURE.properties";
@@ -40,37 +38,41 @@ public class CopyrightChecker {
 	public static int COPYRIGHT_Not_Present = 0x0001;
 	public static int COPYRIGHT_Wrong_Format = 0x0002;
 
-	private final static String FILE_EXT_NAME_Java = ".java";
-	private final static String CURRENT_DIR = ".";
+	public static int COPYRIGHT_FAILED = -1;
+
 	private final static String RESULT_FILE_NAME_Prefix = "crCheckResult_";
 
-	private Map<Integer, List<String>> incorrectFilePaths;
+	private List<String> wrongFormatFilePaths;
+	private List<String> missingFilePaths;
+
 	private String[] copyrightPatterns;
 	private String[] startLineKeywords;
 
 	public CopyrightChecker() {
-		incorrectFilePaths  = new HashMap<>();
+		wrongFormatFilePaths = new ArrayList<>();
+		missingFilePaths = new ArrayList<>();
 
-		copyrightPatterns = new String[COPYRIGHT_BLOCK_LINE_NUM];
-		copyrightPatterns[0] = COPYRIGHT_FIRST_LINE_PATTERN;
-		copyrightPatterns[1] = COPYRIGHT_SECOND_LINE_PATTERN;
+		copyrightPatterns = new String[] {
+				COPYRIGHT_FIRST_LINE_PATTERN,
+				COPYRIGHT_SECOND_LINE_PATTERN };
 
-		startLineKeywords = new String[COPYRIGHT_START_LINE_KEYWORD_NUM];
-		startLineKeywords[0] = COPYRIGHT_START_LINE_KEYWORD_1;
-		startLineKeywords[1] = COPYRIGHT_START_LINE_KEYWORD_2;
-		startLineKeywords[2] = COPYRIGHT_START_LINE_KEYWORD_3;
-		startLineKeywords[3] = COPYRIGHT_START_LINE_KEYWORD_4;
-		startLineKeywords[4] = COPYRIGHT_START_LINE_KEYWORD_5;
+		startLineKeywords = new String[] {
+				COPYRIGHT_START_LINE_KEYWORD_1,
+				COPYRIGHT_START_LINE_KEYWORD_2,
+				COPYRIGHT_START_LINE_KEYWORD_3,
+				COPYRIGHT_START_LINE_KEYWORD_4,
+				COPYRIGHT_START_LINE_KEYWORD_5};
 	}
 
-	public Map<Integer, List<String>> getIncorrectFilePaths() {
-		return incorrectFilePaths;
+	public List<String> getWrongFormatFilePaths() {
+		return wrongFormatFilePaths;
 	}
 
-	public void checkPath(String path, boolean recursive) {
-		if (path == null)
-			path = CURRENT_DIR;
+	public List<String> getMissingFilePaths() {
+		return missingFilePaths;
+	}
 
+	public void checkDir(String path) {
 		File file = new File(path);
 		String canonicalPath = null;
 		try {
@@ -78,45 +80,21 @@ public class CopyrightChecker {
 			if (file.exists()) {
 				if (file.isFile())
 					checkFile(file);
-				else if (file.isDirectory())
-					checkDir(file, recursive);
-
-				writeResultToFile(canonicalPath);
+				else if (file.isDirectory()) {
+					Logger.writeLog("Begin to check directory: " + path + " ......");
+					FileFilter filter = new FileExtNameFilter(Main.FILE_EXT_NAME_Java);
+					File[] files = file.listFiles(filter);
+					if (files != null) {
+						for (File curFile : files) {
+							checkDir(curFile.getCanonicalPath());
+						}
+					}
+					Logger.writeLog("End checking directory: " + path);
+				}
 			}
 			else {
 				Logger.writeException("File or path " + canonicalPath + " does not exist.");
 			}
-		}
-		catch (IOException e) {
-			Logger.writeException(e.getMessage());
-			e.printStackTrace();
-		}
-	}
-
-	public void checkDir(File dir, boolean recursive) {
-		try {
-			String path = dir.getCanonicalPath();
-			Logger.writeLog("Begin to check directory: " + path + " ......");
-
-			FileFilter filter = new FileExtNameFilter(FILE_EXT_NAME_Java);
-			File[] files = dir.listFiles(filter);
-			if (files != null) {
-				for (File curFile : files) {
-					if (curFile.isFile()) {
-						checkFile(curFile);
-					}
-				}
-
-				if (recursive) {
-					for (File curFile : files) {
-						if (curFile.isDirectory()) {
-							checkDir(curFile, true);
-						}
-					}
-				}
-			}
-
-			Logger.writeLog("End checking directory: " + path);
 		}
 		catch (IOException e) {
 			Logger.writeException(e.getMessage());
@@ -133,42 +111,33 @@ public class CopyrightChecker {
 			filePath = file.getCanonicalPath();
 			Logger.writeLog("Checking file: " + filePath + " ......");
 
-			FileReader reader = new FileReader(file);
-			bufferedReader = new BufferedReader(reader);
+			bufferedReader = new BufferedReader(new FileReader(file));
 
 			String line;
-			while ( (line = bufferedReader.readLine()) != null) {
+			while ((line = bufferedReader.readLine()) != null) {
 				caseNum = checkStartLine(line);
 				if (caseNum != COPYRIGHT_Not_Present) {
 					if (caseNum == COPYRIGHT_OK) {
 						line = bufferedReader.readLine();
-						if (line == null) {
-							caseNum = COPYRIGHT_Wrong_Format;
-						}
-						else {
-							caseNum = checkFollowingLine(line, 2);
-						}
+						if (line == null) caseNum = COPYRIGHT_Wrong_Format;
+						else caseNum = checkFollowingLine(line, 2);
 					}
 					break;
 				}
 			}
 		}
-		catch (FileNotFoundException e) {
+		catch (Exception e) {
 			Logger.writeException(e.getMessage());
 			e.printStackTrace();
-		}
-		catch (IOException e) {
-			Logger.writeException(e.getMessage());
-			e.printStackTrace();
+			caseNum = COPYRIGHT_FAILED;
 		}
 		finally {
 			if (bufferedReader != null) {
 				try {
 					bufferedReader.close();
 				}
-				catch (IOException e) {
-					Logger.writeException(e.getMessage());
-					e.printStackTrace();
+				catch (Exception ignoreException) {
+					// nothing to do here
 				}
 				bufferedReader = null;
 			}
@@ -176,10 +145,8 @@ public class CopyrightChecker {
 
 		// Dump to list
 		if (caseNum != COPYRIGHT_OK) {
-			if ( ! incorrectFilePaths.containsKey(caseNum) ) {
-				incorrectFilePaths.put(caseNum, new ArrayList<String>());
-			}
-			incorrectFilePaths.get(caseNum).add(filePath);
+			if (caseNum == COPYRIGHT_Wrong_Format) wrongFormatFilePaths.add(filePath);
+			else if (caseNum == COPYRIGHT_Not_Present) missingFilePaths.add(filePath);
 		}
 
 		return caseNum;
@@ -195,10 +162,10 @@ public class CopyrightChecker {
 			caseNum = COPYRIGHT_OK;
 
 			// special case: Copyright (c) 2014-2013 Oracle Corporation, Redwood Shores, CA, USA
-			if ((matcher.group(2) != null) && (matcher.group(3) != null) ) {
+			if ((matcher.group(2) != null) && (matcher.group(3) != null)) {
 				int fromYear = Integer.parseInt(matcher.group(2));
 				int toYear = Integer.parseInt(matcher.group(3));
-				if ( (fromYear >= toYear) || (toYear > getCurYear()) ) {
+				if ((fromYear >= toYear) || (toYear > Main.getCurYear())) {
 					caseNum = COPYRIGHT_Wrong_Format;
 				}
 			}
@@ -206,7 +173,7 @@ public class CopyrightChecker {
 		else {
 			StringTokenizer st = new StringTokenizer(line.toLowerCase());
 			StringBuilder sb = new StringBuilder();
-			while(st.hasMoreTokens()){
+			while (st.hasMoreTokens()) {
 				sb.append(st.nextToken());
 			}
 
@@ -239,69 +206,65 @@ public class CopyrightChecker {
 	private String describeCase(int caseNum) {
 		String caseDesp = null;
 
-		if ( (caseNum & COPYRIGHT_Not_Present) != 0 )
+		if ((caseNum & COPYRIGHT_Not_Present) != 0)
 			caseDesp = "Copyright does not present";
 
-		if ( (caseNum & COPYRIGHT_Wrong_Format) != 0 ) {
+		if ((caseNum & COPYRIGHT_Wrong_Format) != 0)
 			caseDesp = "Copyright wrong format";
-		}
 
 		return caseDesp;
 	}
 
-	private int getCurYear() {
-		Calendar calendar = Calendar.getInstance();
-		calendar.setTimeInMillis(System.currentTimeMillis());
-		return calendar.get(Calendar.YEAR);
-	}
-
 	public void writeResultToFile(String pathChecked) {
 		BufferedWriter bw = null;
+		File resultFile = null;
+		// delete all old result files
+		for (String fileName : generateAllResultFileNames()) {
+			resultFile = new File(fileName);
+			if (resultFile.exists()) {
+				resultFile.delete();
+			}
+		}
+		if (missingFilePaths.isEmpty() && wrongFormatFilePaths.isEmpty()) {
+			Logger.writeInfo("File/Path checked: " + pathChecked);
+			Logger.writeInfo("No error found.");
+		}
+		else {
+			String completedTime = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date());
+			// write wrong format file paths to result files
+			if (! wrongFormatFilePaths.isEmpty())
+				writeResultToFile(COPYRIGHT_Wrong_Format, resultFile, bw, pathChecked, completedTime);
+			// write missing file paths to result files
+			if (! missingFilePaths.isEmpty())
+				writeResultToFile(COPYRIGHT_Not_Present, resultFile, bw, pathChecked, completedTime);
+		}
+	}
+
+	private void writeResultToFile(int caseNum, File resultFile, BufferedWriter bw, String pathChecked, String completedTime) {
+		String caseDesp = describeCase(caseNum);
 		try {
-			File resultFile;
+			if ( (caseDesp != null) && (resultFile != null ) ) {
+				resultFile = new File(generateResultFileName(caseNum));
+				resultFile.createNewFile();
+				FileWriter fw = new FileWriter(resultFile.getCanonicalFile());
+				bw = new BufferedWriter(fw);
 
-			// delete all old result files
-			for (String fileName : generateAllResultFileNames()) {
-				resultFile = new File(fileName);
-				if (resultFile.exists()) {
-					resultFile.delete();
-				}
-			}
+				bw.write("File/Path checked: " + pathChecked);
+				bw.newLine();
+				bw.write("Check completed at " + completedTime + ".");
+				bw.newLine();
+				bw.newLine();
 
-			if (incorrectFilePaths.isEmpty()) {
-				Logger.writeInfo("File/Path checked: " + pathChecked);
-				Logger.writeInfo("No error found.");
-			}
-			else {
-				String completedTime = generateTimeString(System.currentTimeMillis());
-
-				for (Integer caseNum : incorrectFilePaths.keySet()) {
-					List<String> filePaths = incorrectFilePaths.get(caseNum);
-					String caseDesp = describeCase(caseNum);
-					if ( (caseDesp != null) && (filePaths != null) ) {
-						resultFile = new File(generateResultFileName(caseNum));
-						resultFile.createNewFile();
-						FileWriter fw = new FileWriter(resultFile.getCanonicalFile());
-						bw = new BufferedWriter(fw);
-
-						bw.write("File/Path checked: " + pathChecked);
-						bw.newLine();
-						bw.write("Check completed at " + completedTime + ".");
-						bw.newLine();
-						bw.newLine();
-
-						bw.write("*************************** Error : " + caseDesp + " ***************************");
-						bw.newLine();
-						for (String path : filePaths) {
-							bw.write(path);
-							bw.newLine();
-						}
-						bw.newLine();
-
-						bw.flush();
-						bw.close();
-						bw = null;
-					}
+				bw.write("*************************** Error : " + caseDesp + " ***************************");
+				bw.newLine();
+				List<String> incorrectFilePaths = new ArrayList<>();
+				if (caseNum == COPYRIGHT_Wrong_Format)
+					incorrectFilePaths = wrongFormatFilePaths;
+				else if (caseNum == COPYRIGHT_Not_Present)
+					incorrectFilePaths = missingFilePaths;
+				for (String incorrectFilePath : incorrectFilePaths) {
+					bw.write(incorrectFilePath);
+					bw.newLine();
 				}
 			}
 		}
@@ -314,9 +277,8 @@ public class CopyrightChecker {
 				try {
 					bw.close();
 				}
-				catch (IOException e) {
-					Logger.writeException(e.getMessage());
-					e.printStackTrace();
+				catch (Exception ignoreException) {
+					// nothing to do here
 				}
 			}
 		}
@@ -333,18 +295,6 @@ public class CopyrightChecker {
 		fileNames[1] = generateResultFileName(COPYRIGHT_Wrong_Format);
 
 		return fileNames;
-	}
-
-	private String generateTimeString(long timeInMillis) {
-		Calendar calendar = Calendar.getInstance();
-		calendar.setTimeInMillis(timeInMillis);
-		return "" + (calendar.get(Calendar.MONTH) + 1) + "/" +
-				calendar.get(Calendar.DAY_OF_MONTH) + "/" +
-				calendar.get(Calendar.YEAR) + " " +
-				calendar.get(Calendar.HOUR_OF_DAY) + ":" +
-				calendar.get(Calendar.MINUTE) + ":" +
-				calendar.get(Calendar.SECOND) + "." +
-				calendar.get(Calendar.MILLISECOND);
 	}
 
 	static class FileExtNameFilter implements FileFilter {
@@ -369,7 +319,4 @@ public class CopyrightChecker {
 			}
 		}
 	}
-
 }
-
-
